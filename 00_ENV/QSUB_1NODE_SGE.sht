@@ -1,11 +1,12 @@
 #!/bin/sh
 
-# Purpose:
-# Emit Sun Grid Engine qsub parallel-environment command
-# requesting <n> slots on single machine.
+# This is a modified version of a script that originally
+# submitted jobs on a Sun Grid Engine, but now submits them to Slurm.
 #
-# > QSUB_1NODE.sht iclient "jobname" "stdoutfile" ierrfile slots "command"
+# IGNORE EVERYTHING BETWEEN HERE AND THE "JAX EDITS" LINE, BELOW.
 #
+# I've left the old code and comments for reference, but everything
+# 
 # iclient is an index identifying the context from which this script
 # has been called...It's used to select an execution time hint for
 # the scheduler (times in seconds).
@@ -28,37 +29,40 @@
 # to direct billing to a particular account.
 
 
-req_params="-cwd -V -b y"
+# req_params="-cwd -V -b y"
 
-usr_params=""
+# usr_params=""
 
-pe_name="batch"
+# pe_name="batch"
 
-client_time[1]=$((5*60))		# fsub (make.fm list)
-client_time[2]=$((5*60))		# ssub (make.same list)
-client_time[3]=$((10*60))		# dsub (make.down list)
-client_time[4]=$((20))			# msub (each lyr, fast)
-client_time[5]=$((6*60))		# subscapes-midZ (each pair)
-client_time[6]=$((2*60))		# subscapes-topZ
-client_time[7]=$((20*60))		# bsub (each D-block)
-client_time[8]=$((5*60))		# single-node solver
-client_time[9]=$((60))			# finish (deprecated)
-client_time[10]=$((10*60))		# submos (deprecated)
+#client_time[1]=$((5*60))                # fsub (make.fm list)
+#client_time[2]=$((5*60))		# ssub (make.same list)
+#client_time[3]=$((10*60))		# dsub (make.down list)
+#client_time[4]=$((20))			# msub (each lyr, fast)
+#client_time[5]=$((6*60))		# subscapes-midZ (each pair)
+#client_time[6]=$((2*60))		# subscapes-topZ
+#client_time[7]=$((20*60))		# bsub (each D-block)
+#client_time[8]=$((5*60))		# single-node solver
+#client_time[9]=$((60))			# finish (deprecated)
+#client_time[10]=$((10*60))		# submos (deprecated)
 
-client_time[30]=$((10*60))		# MRCSD1Lyr
-client_time[31]=$((10*60))		# GrayRanger
-client_time[32]=$((10*60))		# HEQLayers
-client_time[33]=$((10*60))		# HistAll
-client_time[34]=$((10*60))		# RGBMerge
+#client_time[30]=$((10*60))		# MRCSD1Lyr
+#client_time[31]=$((10*60))		# GrayRanger
+#client_time[32]=$((10*60))		# HEQLayers
+#client_time[33]=$((10*60))		# HistAll
+#client_time[34]=$((10*60))		# RGBMerge
 
-selected_time=${client_time[$1]}
+#selected_time=${client_time[$1]}
 
-if [ "$selected_time" != "" ]
-then
-  time_hint="-l d_rt=$selected_time"
-else
-  time_hint=""
-fi
+#if [ "$selected_time" != "" ]
+#then
+#  time_hint="-l d_rt=$selected_time"
+#else
+#  time_hint=""
+#fi
+
+
+# JAX EDITS: KEEP THIS PART
 
 if [ "$3" != "" ]
 then
@@ -69,10 +73,52 @@ fi
 
 if [ $4 == 0 ]
 then
-  errorcmd="-j y"
+  # In this block, we want to send job error messages to the same file as stdout.
+  # In SGE, that required the flag "-j y", meaning "join yes". But in Slurm, the
+  # stdout and stderr are joined by default, so do nothing. 
+  # errorcmd="-j y" # SGE way
+  errorcmd="" # Slurm way
 else
-  errorcmd="-e $2.err"
+  errorcmd="-e $2.err" # Same in both SGE and SLURM
 fi
 
-qsub $time_hint -N "$2" $req_params $usr_params -o $outfile $errorcmd -pe $pe_name $5 "$6"
+# JAX EDITS: 
+# This WAS the command on SGE:
+# qsub $time_hint -N "$2" $req_params $usr_params -o $outfile $errorcmd -pe $pe_name $5 "$6"
+#
+# Slurm uses "sbatch" instead of "qsub"
+#
+# The "-l d_rt" flag in the "time_hint" string above was a newer feature in SGE that allowed 
+# a script to SUGGEST a walltime without the job receiving a term signal when that walltime was 
+# exceeded. Slurm has no such equivalent. Jobs will be killed if they exceed their walltime.
+# However, the scheduler will not penalize jobs that ask for a longer walltime, b/c people
+# are typically not great at guessing that anyway. Since the longest possible requestable
+# run time in the table above is 20 minutes, we'll just ask for a flat hour every time.
+# If we see jobs die b/c of the walltime, we can adjust this in the future.
+#
+
+# Regarding the req_params, which were: req_params="-cwd -V -b y"
+# I think take the -V out of req_params and use "--export=ALL"
+
+# As for -cwd, current working directory, in Slurm:
+# "Current working directory is the calling process working directory unless the --chdir argument
+# is passed, which will override the current working directory."
+# So I think don't do anything with the -cwd
+
+# The "binary yes or no" option isn't relevent now, AFAIK.
+# So:
+req_params="--export=ALL"
+
+# Side note: we need the correct GLIBCXX version, obtainable by loading the gcc module
+module load gcc
+
+# Finally, sbatch does not take a command directly, but instead expects a file containing the job 
+# script. Said file must start with the bash shebang, '#!/bin/bash'. One solution is to write to
+# a temp file. But we can instead pipe the command as stdin.
+
+run_cmd='#!/usr/bin/bash\n'"$6" # $6 is the actual command being executed.
+
+echo -e "$run_cmd" | sbatch --time=1:00:00 --job-name="$2" $req_params  -o $outfile $errorcmd \
+ --cpus-per-task=$5 --qos=batch
+ 
 
