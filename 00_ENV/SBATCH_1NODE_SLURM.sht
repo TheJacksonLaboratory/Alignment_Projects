@@ -1,0 +1,181 @@
+#!/bin/sh
+
+# This is a modified version of a script that originally
+# submitted jobs on a Sun Grid Engine, but now submits them to Slurm.
+#
+# IGNORE EVERYTHING BETWEEN HERE AND THE "JAX EDITS" LINE, BELOW.
+# I've left the old code and comments for reference, but everything
+# below the "JAX EDITS" line is now commented out.
+
+# iclient is an index identifying the context from which this script
+# has been called...It's used to select an execution time hint for
+# the scheduler (times in seconds).
+#
+# stdoutfile names your stdout file. The empty string, "", selects
+# /dev/null, which suppresses output.
+#
+# ierrfile is one of {0,1}. Zero joins stderr to stdout. One creates
+# an error file named "<jobname>.err".
+#
+# Aligner requires:
+# -N <jobname>	;jobname
+# -cwd			;execute in current working directory
+# -V			;pass current environment vars to job
+# -b y			;command $5 can be binary or script
+# -pe <name> n	;parallel environment to use, n slots
+#
+# Set variable usr_params according to your local cluster
+# requirements and policies. For example, you may be able
+# to direct billing to a particular account.
+
+
+# req_params="-cwd -V -b y"
+
+# usr_params=""
+
+# pe_name="batch"
+
+#client_time[1]=$((5*60))                # fsub (make.fm list)
+#client_time[2]=$((5*60))		# ssub (make.same list)
+#client_time[3]=$((10*60))		# dsub (make.down list)
+#client_time[4]=$((20))			# msub (each lyr, fast)
+#client_time[5]=$((6*60))		# subscapes-midZ (each pair)
+#client_time[6]=$((2*60))		# subscapes-topZ
+#client_time[7]=$((20*60))		# bsub (each D-block)
+#client_time[8]=$((5*60))		# single-node solver
+#client_time[9]=$((60))			# finish (deprecated)
+#client_time[10]=$((10*60))		# submos (deprecated)
+
+#client_time[30]=$((10*60))		# MRCSD1Lyr
+#client_time[31]=$((10*60))		# GrayRanger
+#client_time[32]=$((10*60))		# HEQLayers
+#client_time[33]=$((10*60))		# HistAll
+#client_time[34]=$((10*60))		# RGBMerge
+
+#selected_time=${client_time[$1]}
+
+#if [ "$selected_time" != "" ]
+#then
+#  time_hint="-l d_rt=$selected_time"
+#else
+#  time_hint=""
+#fi
+
+
+# JAX EDITS
+#
+# OUTPUT/LOG FILENAME
+#
+# $3 was the name of the output/log file
+if [ "$3" != "" ]
+then
+    outfile="$3"
+    # delete the output file if it exists already
+    rm -f "$outfile"
+    # We want to append to the output file
+    outfile_cmd="--open-mode=append -o $outfile"
+else
+    # The old SGE pipeline would send the output to /dev/null if no outfile was
+    # specified. But we can't do that here because it would leave us with no log file.
+    # In Slurm, if no output file is specified, stdout and the ob epilogue stats will 
+    # be writte to a file that by default is named "slurm-%j.out", where "%j" is the 
+    # job id. (This format is different for job arrays, but this script focuses only
+    # on invididual jobs.)
+    outfile=/dev/stdout
+    outfile_cmd=""
+fi
+
+#
+# ERROR FILE
+#
+# $4 indicated whether to send stderr to a separate file, or join it with stdout.
+if [ $4 == 0 ]
+then
+    # In this block, we want to send job error messages to the same file as stdout.
+    # In SGE, that required the flag "-j y", meaning "join yes". But in Slurm, the
+    # stdout and stderr are joined by default, so do nothing. 
+    # errorcmd="-j y" # SGE way
+    errorcmd="" # Slurm way
+else
+    # Here we are asking that stderr be sent to a separate file.
+    errfile="$2.err"
+    # Clear the error file if it already exists
+    rm -f "$errfile"
+    errorcmd="-e $errfile" # Same in both SGE and SLURM
+fi
+
+
+# This WAS the command on SGE:
+# qsub $time_hint -N "$2" $req_params $usr_params -o $outfile $errorcmd -pe $pe_name $5 "$6"
+#
+# First off, Slurm uses "sbatch" instead of "qsub". The "-N" option was the job name, replaced 
+# by "--job-name". See the final "sbatch_cmd" toward the end of this script.
+#
+# The "-l d_rt" flag in the "time_hint" string above was a newer feature in SGE that allowed 
+# a script to SUGGEST a walltime without the job receiving a term signal when that walltime was 
+# exceeded. Slurm has no such equivalent. Jobs will be killed if they exceed their walltime.
+# However, the scheduler will not penalize jobs that ask for a longer walltime, b/c people
+# are typically not great at guessing that anyway. Since the longest possible requestable
+# run time in the table above is 20 minutes, we'll just ask for a flat hour every time.
+# If we see jobs die b/c of the walltime, we can adjust this in the future. So:
+
+wall_time_limit="1:00:00"
+
+
+# Regarding the req_params, which were: req_params="-cwd -V -b y":
+
+# The "-cwd" meant "current working directory" in SGE, but in Slurm:
+# "Current working directory is the calling process working directory unless the --chdir argument
+# is passed, which will override the current working directory." In other words, the cwd is the
+# directory the job was submitted from by default, so we don't need to use the -cwd flag.
+
+# The "-V" meant "pass all environment variables to the job" in SGE.
+# In Slurm, the same is done via "--export=ALL"
+
+# Lastly, the "-b y" meant "binary yes", which allowed SGE to take a binary file instead of a  
+# script. This isn't relevent in Slurm, AFAIK.
+# So finally all that's left for req_params is:
+
+req_params="--export=ALL"
+
+# Side note: we need the correct GLIBCXX version, obtainable by loading the gcc module
+module load gcc
+
+# Finally, sbatch does not take a command directly, but instead expects a file containing the job 
+# script. Said file must start with the bash shebang, '#!/bin/bash'. We could try to pipe commands
+# as stdin to sbatch, but it gets a touch messy, so instead we'll write our commands to a job script
+# temp file.
+SCRIPT_DIR="/tmp/img_reg_job_scripts"
+mkdir -p "$SCRIPT_DIR"
+job_script_file=$(mktemp "$SCRIPT_DIR/XXXXXXXXX.sh") # Bash command for randomly named temp file
+
+# Script must start with the shebang
+echo '#!/usr/bin/bash' > $job_script_file
+
+# Log what time the actually begins running
+echo 'echo "Job began executing at $(date)"' >> $job_script_file
+
+# Log the commands being sent.
+echo "$6" >> $job_script_file # $6 is the actual command being executed.
+
+# Write the name of the job script file to the logfile.
+echo "Job script file located at $job_script_file" >> $outfile
+
+# Log the time of completion.
+echo 'echo Job ended at $(date)' >> $job_script_file
+
+# The batch command looks like this:
+sbatch_cmd="sbatch -p compute --qos=batch $outfile_cmd $errorcmd "
+sbatch_cmd="$sbatch_cmd --time=$wall_time_limit --job-name=$2 $req_params --cpus-per-task=$5"
+sbatch_cmd="$sbatch_cmd $job_script_file"
+
+
+# Log the job submission time and arguments
+echo "Job submitted at $(date)" >> $outfile 
+echo "sbatch_cmd is: $sbatch_cmd" >> $outfile
+
+# Now actually submit the job 
+eval "$sbatch_cmd"
+ 
+
+

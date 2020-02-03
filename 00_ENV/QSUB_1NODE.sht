@@ -1,24 +1,31 @@
 #!/bin/sh
 
-# Purpose:
-# You enable (uncomment) the appropriate line to dispatch cluster commands to either a:
-# - Sun Grid Engine execution environment, or,
-# - IBM Spectrum LSF execution environment.
+# JAX_EDITS: This is the file that USED TO submit jobs to either a Sun Grid
+# Engine HPC IBM Spectrum LSF execution environment. NOW it submits them to 
+# Slurm, which is what we're using at JAX.  As such "QSUB" is a misnomer, 
+# because Slurm uses sbatch instead of qsub. But I wanted to keep the changes
+# as minimal as possible to the rest of the pipeline. 
+
 #
 # > QSUB_1NODE.sht iclient "jobname" "stdoutfile" ierrfile slots "command"
 #
-# iclient is an index identifying the context from which this script
-# has been called...It's used to select an execution time hint for
-# the scheduler.
-#
-# stdoutfile names your stdout file. The empty string, "", selects
-# /dev/null, which suppresses output.
+# iclient WASS an index identifying the context from which this script
+# had been called...It used to select an execution time hint for the 
+# scheduler. Currently, it is not actually used, so the option is deprecated.
+
+
+# stdoutfile names your stdout file. The empty string, "", selects the default
+# output file, named "Slurm-<jobid>.out". Either way, the log will write to the
+# directory from which this script was called.
 #
 # ierrfile is one of {0,1}. Zero joins stderr to stdout. One creates
 # an error file named "<jobname>.err".
 
+# Slots is the number of processors per node to use.
 
-QSUB_1NODE_SGE.sht "$1" "$2" "$3" "$4" "$5" "$6"
+# "command" is the actual command that will be run.
 
-#QSUB_1NODE_LSF.sht "$1" "$2" "$3" "$4" "$5" "$6"
+
+SBATCH_1NODE_SLURM.sht "$1" "$2" "$3" "$4" "$5" "$6"
+
 
