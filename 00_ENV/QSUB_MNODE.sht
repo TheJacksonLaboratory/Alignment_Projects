@@ -1,5 +1,11 @@
 #!/bin/sh
 
+# 
+# NOTE!
+# Everything between here and the "JAX_EDITS" line below has been commented
+# out. It's been kept only for historical interest.
+
+
 # Purpose:
 # Emit Sun Grid Engine qsub parallel-environment command
 # requesting "impi3" script that reserves whole nodes
@@ -29,20 +35,36 @@
 # to direct billing to a particular account.
 
 
-req_params="-cwd -V -b y"
+# req_params="-cwd -V -b y"
 
-usr_params=""
+# usr_params=""
 
-client_time[1]=$((10*60))		# multinode solver
+# client_time[1]=$((10*60))		# multinode solver
 
-selected_time=${client_time[$1]}
+# selected_time=${client_time[$1]}
 
-if [ "$selected_time" != "" ]
-then
-  time_hint="-l d_rt=$selected_time"
-else
-  time_hint=""
-fi
+# if [ "$selected_time" != "" ]
+# then
+#    time_hint="-l d_rt=$selected_time"
+# else
+#   time_hint=""
+# fi
 
-qsub $time_hint -N $2 $req_params $usr_params $3 -pe impi3 $4 $5
+# qsub $time_hint -N $2 $req_params $usr_params $3 -pe impi3 $4 $5
+
+
+# JAX EDITS:
+# The single node version should be adequate here b/c the way this script
+# was being invoked wouldn't have reserved multiple nodes on our system 
+# anyway. 
+
+# $1 is the "time hint", which is not used.
+# $2 is the job name
+# $3 is the name of the output file
+# The empty string being passed is for the error file. With none specified,
+# stderr is joined with stdout.
+# $4 is the number of processors needed. 
+# $5 is the actual command being sent.
+
+SBATCH_1NODE_SLURM.sht "$1" "$2" "$3" "" "$4" "$5"
 
